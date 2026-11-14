@@ -64,14 +64,15 @@
 - [ ] **Slice 4: Demo and QA (Feature Testing & Regression)**
 
   > Verifies the whole feature end-to-end against functional-spec.md, run after all implementation slices are complete. Evidence for the slice: `demo.sh` ends with exit code 0.
-  - [ ] Task 7: Write the smoke tests: `tests/conftest.py` and one pytest file for each of the slices 1 to 3, with one test for each acceptance criterion AC-1 to AC-28. Annotate each test with `@spec: 001-async-pdf-pipeline`, and with `@regression` if it is suitable for long-term regression. **[Agent: python-test]**
+  - [ ] Task 7 (not done: skip-tests, time limit): Write the smoke tests: `tests/conftest.py` and one pytest file for each of the slices 1 to 3, with one test for each acceptance criterion AC-1 to AC-28. Annotate each test with `@spec: 001-async-pdf-pipeline`, and with `@regression` if it is suitable for long-term regression. **[Agent: python-test]**
     - Scope: TS 4 (fixtures, poll helper, sample files, stack modes, markers, the rules for AC-9, AC-10 and AC-26).
     - Files: `tests/test_slice1_skeleton.py` (AC-12, AC-25), `tests/test_slice2_api.py` (AC-1, 2, 4, 5, 9, 11, 16 to 22, 26, 27, 28), `tests/test_slice3_worker.py` (AC-3, 6, 7, 8, 10, 13, 14, 15, 23, 24).
     - Smoke tests only: `httpx` against the running stack. No unit tests, no fake Redis.
     - RED check: run `tests/test_slice3_worker.py` with the worker stopped and record the failures. Then start the worker and record the pass.
     - Do not change files in `app/`. Report a defect to the owner of the code.
     - Evidence: the pytest output of each stack mode, with all tests passed or skipped for their mode.
-  - [ ] Task 8: Write `demo.sh` and `README.md`. `demo.sh` shows the feature with 3 public PDF files and then runs all smoke tests in each stack mode. `README.md` has the start steps, the `curl` commands, an "Assumptions" section and an "AI workflow" section. **[Agent: python-test]**
+  - [x] Task 8: Write `demo.sh` and `README.md`. `demo.sh` shows the feature with 3 public PDF files and then runs all smoke tests in each stack mode. `README.md` has the start steps, the `curl` commands, an "Assumptions" section and an "AI workflow" section. **[Agent: python-test]**
+    - Decision of the product owner, 2026-11-14: Task 7 is skipped, so `demo.sh` runs no smoke tests. It shows the feature with 3 public PDF files (two text, one scanned). `README.md` gets the sections Run, Demo (the output of one run) and Known issues.
     - Scope: TS 4 (evidence run `demo.sh`, stack modes).
     - `demo.sh` downloads the 3 public PDF files, uploads them with `curl`, polls, and prints the status, the page count and the summary of each document. At least one file has 10 pages or fewer and 1 MB or less. `README.md` lists the address of each file.
     - "Assumptions": the items with the label Assumption in `context/product/product-definition.md`, `context/product/architecture.md` and the technical spec that are still valid.
