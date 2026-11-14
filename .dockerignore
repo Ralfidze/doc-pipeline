@@ -1,0 +1,12 @@
+.git
+.venv
+.env
+.claude
+.awos
+.serena
+context
+docs
+tests
+__pycache__
+*.pyc
+.pytest_cache

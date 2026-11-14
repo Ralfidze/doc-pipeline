@@ -1,0 +1,107 @@
+from dataclasses import dataclass
+
+from redis.asyncio import Redis
+from redis.asyncio.client import Pipeline
+from redis.exceptions import ResponseError
+
+from app.storage.client import GROUP, STREAM, ensure_group
+
+DEAD_STREAM = "documents:dead"
+STREAM_MAXLEN = 10000
+
+
+def add_message(conn: Redis | Pipeline, document_id: str, parser: str, attempt: int = 0) -> None:
+    """Queue `XADD` for one document. Only ids, never PDF bytes. On a pipeline this does not send."""
+    conn.xadd(
+        STREAM,
+        {"document_id": document_id, "parser": parser, "attempt": str(attempt)},
+        maxlen=STREAM_MAXLEN,
+        approximate=True,
+    )
+
+
+async def queue_numbers(client: Redis) -> tuple[int, int]:
+    """Return (length, pending). Run the group setup once if the group is missing (NOGROUP)."""
+    try:
+        return await _numbers(client)
+    except ResponseError as exc:
+        if "NOGROUP" not in str(exc):
+            raise
+    await ensure_group(client)
+    return await _numbers(client)
+
+
+async def _numbers(client: Redis) -> tuple[int, int]:
+    length = await client.xlen(STREAM)
+    summary = await client.xpending(STREAM, GROUP)
+    return length, int(summary["pending"])
+
+
+BLOCK_MS = 5000
+
+
+@dataclass(frozen=True, slots=True)
+class StreamMessage:
+    msg_id: str
+    fields: dict[str, str]
+
+
+async def read_group(client: Redis, consumer: str, count: int) -> list[StreamMessage]:
+    """Step 1: `XREADGROUP ... COUNT n BLOCK 5000 ... >`. Run the group setup after NOGROUP."""
+    try:
+        reply = await _read(client, consumer, count)
+    except ResponseError as exc:
+        if "NOGROUP" not in str(exc):
+            raise
+        await ensure_group(client)
+        reply = await _read(client, consumer, count)
+    messages: list[StreamMessage] = []
+    for _stream, entries in reply or []:
+        for msg_id, raw in entries:
+            fields = {k.decode(): v.decode() for k, v in raw.items()}
+            messages.append(StreamMessage(msg_id.decode(), fields))
+    return messages
+
+
+async def _read(client: Redis, consumer: str, count: int) -> list:
+    return await client.xreadgroup(GROUP, consumer, {STREAM: ">"}, count=count, block=BLOCK_MS)
+
+
+def add_ack(conn: Redis | Pipeline, msg_id: str) -> None:
+    """Queue `XACK`. On a pipeline this does not send."""
+    conn.xack(STREAM, GROUP, msg_id)
+
+
+async def ack(client: Redis, msg_id: str) -> None:
+    await client.xack(STREAM, GROUP, msg_id)
+
+
+async def retry(client: Redis, msg_id: str, document_id: str, parser: str, attempt: int) -> None:
+    """Step 5: `XACK` and `XADD` with the new `attempt` in one MULTI."""
+    async with client.pipeline(transaction=True) as pipe:
+        add_ack(pipe, msg_id)
+        add_message(pipe, document_id, parser, attempt)
+        await pipe.execute()
+
+
+def add_dead(
+    conn: Redis | Pipeline,
+    document_id: str,
+    parser: str,
+    attempt: int,
+    error_code: str,
+    error_message: str,
+) -> None:
+    """Queue `XADD` to the dead-letter stream. On a pipeline this does not send."""
+    conn.xadd(
+        DEAD_STREAM,
+        {
+            "document_id": document_id,
+            "parser": parser,
+            "attempt": str(attempt),
+            "error_code": error_code,
+            "error_message": error_message,
+        },
+        maxlen=STREAM_MAXLEN,
+        approximate=True,
+    )

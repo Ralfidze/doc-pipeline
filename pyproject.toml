@@ -1,0 +1,21 @@
+[project]
+name = "doc-pipeline"
+version = "0.1.0"
+description = "Async PDF pipeline: FastAPI, Redis Streams, worker"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "pydantic-settings",
+    "redis",
+    "pypdf",
+    "cryptography",
+    "google-genai",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "httpx",
+]
