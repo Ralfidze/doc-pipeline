@@ -335,17 +335,15 @@ Other risks from the specialist review:
 The strategy is the product owner's: smoke tests only, one pytest file for each slice, `httpx` against the running Compose stack, and `demo.sh` as the evidence run.
 
 - **Smoke tests only.** One test for each acceptance criterion. No unit tests, no `fakeredis`, no in-process app. The lines about a fake Redis and a fake Gemini client in `.claude/agents/python-test.md` do not apply to this spec.
-- **Layout:** `tests/conftest.py` and one `tests/test_<slice>.py` for each slice. `/awos:tasks` defines the slices. **Assumption:** this grouping:
+- **Layout:** `tests/conftest.py` and one pytest file for each implementation slice of `tasks.md`:
 
 | Slice | File | Criteria |
 | --- | --- | --- |
-| Upload and status | `test_upload.py` | AC-1, 2, 4, 9, 11, 18, 19, 20, 21, 22, 27 |
-| `pypdf` result | `test_pypdf_result.py` | AC-3, 7 |
-| `gemini` parser | `test_gemini.py` | AC-13, 14, 15, 16 |
-| Failures | `test_failures.py` | AC-6, 8, 23, 24 |
-| Recovery | `test_recovery.py` | AC-10 |
-| Health and queue | `test_health_queue.py` | AC-12, 17, 25, 26 |
-| Parser refusals | `test_modes.py` | AC-5, 28 |
+| 1, skeleton | `tests/test_slice1_skeleton.py` | AC-12, 25 |
+| 2, API | `tests/test_slice2_api.py` | AC-1, 2, 4, 5, 9, 11, 16 to 22, 26, 27, 28 |
+| 3, worker | `tests/test_slice3_worker.py` | AC-3, 6, 7, 8, 10, 13, 14, 15, 23, 24 |
+
+- Slice 4 writes these tests and `demo.sh`. It has no pytest file of its own.
 
 - **Fixtures:** the base address (`API_URL`, default `http://localhost:8000`), one `httpx` client, an upload helper, a poll helper, the sample files, a helper that runs `docker compose`.
 - **Poll helper:** it asks every 2 s. The limit is 60 s for `pypdf` and 120 s for `gemini`, from the upload reply. On a timeout it fails the test with the last reply body.
@@ -370,4 +368,5 @@ The strategy is the product owner's: smoke tests only, one pytest file for each 
   3. Run pytest in the mode `normal`, then the `destructive` tests.
   4. Run pytest in each other mode, with a new start of the stack for each.
   5. Print one line for each step and `ALL STEPS PASSED` at the end. Stop at the first failure with a non-zero exit code. Write the output to a log file.
-- **RED validation.** The agent template asks for a test that fails before its change. For a smoke test, the agent runs the new test file against the stack before the slice is built and records the failure. Then it builds the slice and records the pass.
+- **RED validation.** The agent template asks for a test that fails before its change. The smoke tests come after the implementation slices, so the test engineer uses a negative control: run `tests/test_slice3_worker.py` with the worker stopped and record the failures, then start the worker and record the pass.
+- **`demo.sh` with public files.** Before the pytest runs, `demo.sh` downloads 3 public PDF files, uploads them with `curl`, polls, and prints the status, the page count and the summary of each document.
