@@ -44,19 +44,19 @@
     - Criteria: AC-2, AC-11, AC-17, AC-21, AC-22, AC-26.
     - Evidence: `curl` runs for AC-2 and AC-11 with the status code and the body of each reply. `redis-cli TTL` on each key of a new document gives a value from 1 to 3600.
 
-- [ ] **Slice 3: Worker — a document gets its pages and its summary**
+- [x] **Slice 3: Worker — a document gets its pages and its summary**
 
   > Evidence for the slice: AC-3, AC-6, AC-7, AC-8 and AC-10 pass with `curl`.
-  - [ ] Task 4: Build the consumer loop (steps 1 to 5), the common PDF check, `PyPdfParser`, the `Gpt5MiniParser` stub, the Gemini client with the call retry and the test mode `rate_limit`, and the summarizer. **[Agent: stream-worker]**
+  - [x] Task 4: Build the consumer loop (steps 1 to 5), the common PDF check, `PyPdfParser`, the `Gpt5MiniParser` stub, the Gemini client with the call retry and the test mode `rate_limit`, and the summarizer. **[Agent: stream-worker]**
     - Scope: TS 2.4 (steps 1 to 5, the guard, the failure table), TS 2.6 (all items except `GeminiParser`), TS 2.3 (expiry rule on each write).
     - Before the first Gemini call, check the `google-genai` call names, the error class for `429` and `503`, and the model id against the current documentation. Make one real call.
     - Criteria: AC-3, AC-6, AC-7, AC-8, AC-23, AC-24.
     - Evidence: `curl` runs for AC-3 (real `GEMINI_API_KEY`), AC-6, AC-7, and AC-8 (`GEMINI_TEST_MODE=rate_limit`), each with the final reply body.
-  - [ ] Task 5: Build `GeminiParser`: one request for each document, the 25-page limit with the warning `gemini_page_limit`, the item-count check with one retry, the error `gemini_bad_response`, and the test mode `bad_page_count`. **[Agent: stream-worker]**
+  - [x] Task 5: Build `GeminiParser`: one request for each document, the 25-page limit with the warning `gemini_page_limit`, the item-count check with one retry, the error `gemini_bad_response`, and the test mode `bad_page_count`. **[Agent: stream-worker]**
     - Scope: TS 2.6 (`GeminiParser`, test mode), TS 2.4 (failure table rows for Gemini).
     - Criteria: AC-13, AC-14, AC-15.
     - Evidence: `curl` runs for AC-13 and AC-14 (real `GEMINI_API_KEY`) and for AC-15 (`GEMINI_TEST_MODE=bad_page_count`), each with the final reply body.
-  - [ ] Task 6: Build the recovery: the read of own pending messages at start, the claim task with `XAUTOCLAIM` every 30 seconds, and the set of message ids in process. **[Agent: stream-worker]**
+  - [x] Task 6: Build the recovery: the read of own pending messages at start, the claim task with `XAUTOCLAIM` every 30 seconds, and the set of message ids in process. **[Agent: stream-worker]**
     - Scope: TS 2.4 (step 6, "Start recovery", "messages in process", repeat run with existing pages).
     - Criteria: AC-10.
     - Evidence: with `GEMINI_TEST_MODE=rate_limit` and `parser=pypdf`, stop the worker while the document is `summarizing`, start it again, and show `done` in 120 seconds or less. Show the worker log lines with the `document_id`.

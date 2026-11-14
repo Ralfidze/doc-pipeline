@@ -46,25 +46,66 @@ class StreamMessage:
     fields: dict[str, str]
 
 
-async def read_group(client: Redis, consumer: str, count: int) -> list[StreamMessage]:
-    """Step 1: `XREADGROUP ... COUNT n BLOCK 5000 ... >`. Run the group setup after NOGROUP."""
+async def read_group(
+    client: Redis, consumer: str, count: int, start_id: str = ">"
+) -> list[StreamMessage]:
+    """Step 1: `XREADGROUP ... COUNT n BLOCK 5000 ... >`. Run the group setup after NOGROUP.
+
+    The start recovery passes `start_id="0"`: Redis then returns the pending messages of this
+    consumer and ignores BLOCK.
+    """
     try:
-        reply = await _read(client, consumer, count)
+        reply = await _read(client, consumer, count, start_id)
     except ResponseError as exc:
         if "NOGROUP" not in str(exc):
             raise
         await ensure_group(client)
-        reply = await _read(client, consumer, count)
+        reply = await _read(client, consumer, count, start_id)
     messages: list[StreamMessage] = []
     for _stream, entries in reply or []:
-        for msg_id, raw in entries:
-            fields = {k.decode(): v.decode() for k, v in raw.items()}
-            messages.append(StreamMessage(msg_id.decode(), fields))
+        messages.extend(_to_messages(entries))
     return messages
 
 
-async def _read(client: Redis, consumer: str, count: int) -> list:
-    return await client.xreadgroup(GROUP, consumer, {STREAM: ">"}, count=count, block=BLOCK_MS)
+def _to_messages(entries: list) -> list[StreamMessage]:
+    # The fields of an entry that was trimmed from the stream are None: give an empty dict.
+    return [
+        StreamMessage(
+            msg_id.decode(),
+            {k.decode(): v.decode() for k, v in (raw or {}).items()},
+        )
+        for msg_id, raw in entries
+    ]
+
+
+async def _read(client: Redis, consumer: str, count: int, start_id: str) -> list:
+    return await client.xreadgroup(
+        GROUP, consumer, {STREAM: start_id}, count=count, block=BLOCK_MS
+    )
+
+
+CLAIM_IDLE_MS = 60_000
+CLAIM_COUNT = 10
+
+
+async def autoclaim(
+    client: Redis, consumer: str, min_idle_ms: int = CLAIM_IDLE_MS, count: int = CLAIM_COUNT
+) -> list[StreamMessage]:
+    """Step 6: `XAUTOCLAIM documents:ingest workers <consumer> 60000 0 COUNT 10`."""
+    try:
+        reply = await _autoclaim(client, consumer, min_idle_ms, count)
+    except ResponseError as exc:
+        if "NOGROUP" not in str(exc):
+            raise
+        await ensure_group(client)
+        reply = await _autoclaim(client, consumer, min_idle_ms, count)
+    return _to_messages(reply[1])
+
+
+async def _autoclaim(client: Redis, consumer: str, min_idle_ms: int, count: int) -> list:
+    return await client.xautoclaim(
+        STREAM, GROUP, consumer, min_idle_time=min_idle_ms, start_id="0", count=count
+    )
 
 
 def add_ack(conn: Redis | Pipeline, msg_id: str) -> None:

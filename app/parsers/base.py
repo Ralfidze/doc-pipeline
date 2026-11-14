@@ -13,6 +13,12 @@ class DocumentError(Exception):
         self.message = message
 
 
+class GeminiUnavailable(Exception):
+    """Gemini failed the parse call on all 4 calls with 429 or 503. A new attempt can repair it."""
+
+    error_code = "gemini_unavailable"
+
+
 @dataclass(slots=True)
 class ParseResult:
     pages: list[PageContent]
