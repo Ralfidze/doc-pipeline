@@ -230,16 +230,17 @@ Built with AWOS (spec-driven workflow for Claude Code). I made the decisions; th
 
 Timeline (commits, local time; pause 12:47–15:20 not counted; about 2h10 of work):
 
-    11:37  chore: bootstrap repo with awos
-    12:26  chore: bootstrap repo with awos and task text
-    12:31  awos: product definition
-    12:40  awos: architecture with decisions
-    12:45  awos: hire to install skills
-    15:46  awos: functional spec 001
-    15:56  awos: technical spec 001
-    15:58  awos: tasks 001
-    16:15  implement: slice 1 skeleton, slice 2 API
-    16:42  implement: slice 3 worker, Gemini parser, recovery
+11:37  chore: bootstrap repo with awos
+12:26  chore: bootstrap repo with awos and task text
+12:31  awos: product definition
+12:40  awos: architecture with decisions
+12:45  awos: hire to install skills
+15:46  awos: functional spec 001
+15:56  awos: technical spec 001
+15:58  awos: tasks 001
+16:15  implement: slice 1 skeleton, slice 2 API
+16:42  implement: slice 3 worker, Gemini parser, recovery (AC-3,6,7,8,10,13,14,15,23,24)
+16:54  implement: task 8 demo.sh and README
 
 Decisions I made against the agent's recommendation:
 - Frontend is a stretch goal, not out of scope. The task lists it last, not never.
