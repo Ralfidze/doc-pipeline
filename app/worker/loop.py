@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError, ResponseError
@@ -18,7 +19,6 @@ from app.summarizer.summarizer import SummaryError, summarize
 log = logging.getLogger("worker")
 
 READ_COUNT = 4  # COUNT of step 1: also the most messages in process
-MAX_ATTEMPTS = 3
 REDIS_RETRY_SECONDS = 1.0
 DRAIN_SECONDS = 25.0  # below the stop grace period of 30 s
 CLAIM_INTERVAL_SECONDS = 30.0  # step 6: the time between two claims
@@ -35,19 +35,15 @@ def _get_parser(name: str, gemini: GeminiClient, document_id: str) -> Parser:
             raise ValueError(f"unknown parser: {name!r}")
 
 
-async def _process(client: Redis, gemini: GeminiClient, msg: queue.StreamMessage, document_id: str) -> None:
-    """Steps 2 to 4 with the guard. Raise on an error: the caller applies step 5."""
+async def _process(
+    client: Redis,
+    gemini: GeminiClient,
+    msg: queue.StreamMessage,
+    document_id: str,
+    state: dict[str, str],
+) -> None:
+    """Steps 2 to 4 of the work. `state` is the guard read. Raise on an error: the caller applies step 5."""
     extra = {"document_id": document_id}
-    state = await documents.read_fields(client, document_id)
-    if state is None:
-        log.info("document expired, message acknowledged", extra=extra)
-        await queue.ack(client, msg.msg_id)
-        return
-    if state["status"] in (Status.DONE.value, Status.FAILED.value):
-        log.info("document has a final status, message acknowledged", extra=extra)
-        await queue.ack(client, msg.msg_id)
-        return
-
     pages = await documents.read_pages(client, document_id)
     if pages is None:
         await documents.set_status(client, document_id, Status.PARSING)
@@ -90,8 +86,12 @@ async def _fail(
     attempt: int,
     error_code: str,
     error_message: str,
+    attempts: int | None = None,
 ) -> None:
-    """Set `failed`, `XACK` and the dead-letter `XADD` in one MULTI."""
+    """Set `failed`, `XACK` and the dead-letter `XADD` in one MULTI.
+
+    `attempt` goes to the dead-letter entry. `attempts`, if set, is written to the hash in the same MULTI.
+    """
 
     def extra_commands(pipe) -> None:  # noqa: ANN001
         queue.add_ack(pipe, msg.msg_id)
@@ -99,47 +99,86 @@ async def _fail(
             pipe, document_id, msg.fields.get("parser", ""), attempt, error_code, error_message
         )
 
-    await documents.set_failure(client, document_id, error_code, error_message, extra_commands)
+    await documents.set_failure(
+        client, document_id, error_code, error_message, extra_commands, attempts=attempts
+    )
     log.error("document failed: %s", error_code, extra={"document_id": document_id})
 
 
-async def handle_message(client: Redis, gemini: GeminiClient, msg: queue.StreamMessage) -> None:
+def _flush_log_handlers() -> None:
+    for logger in (log, logging.getLogger()):
+        for handler in logger.handlers:
+            handler.flush()
+
+
+async def handle_message(
+    client: Redis,
+    gemini: GeminiClient,
+    msg: queue.StreamMessage,
+    max_attempts: int,
+    crash_filename: str = "",
+) -> None:
     document_id = msg.fields.get("document_id", "")
     if not document_id:
         log.error("message %s has no document_id, acknowledged", msg.msg_id)
         await queue.ack(client, msg.msg_id)
         return
     extra = {"document_id": document_id}
-    attempt = int(msg.fields.get("attempt", "0") or 0) + 1  # failed attempts, this one included
     try:
-        try:
-            await _process(client, gemini, msg, document_id)
-        except documents.DocumentGone:
-            log.info("document expired during processing", extra=extra)
+        # Step 2: final guard. No count.
+        state = await documents.read_fields(client, document_id)
+        if state is None:
+            log.info("document expired, message acknowledged", extra=extra)
             await queue.ack(client, msg.msg_id)
+            return
+        if state["status"] in (Status.DONE.value, Status.FAILED.value):
+            log.info("document has a final status, message acknowledged", extra=extra)
+            await queue.ack(client, msg.msg_id)
+            return
+        # Step 3: count.
+        attempt = await documents.begin_attempt(client, document_id)
+        # Step 4: limit check.
+        if attempt > max_attempts:
+            await _fail(
+                client, msg, document_id, max_attempts, "max_attempts",
+                f"The document was not processed after {max_attempts} attempts.",
+                attempts=max_attempts,
+            )
+            return
+        # Step 5: test hook.
+        if crash_filename and state.get("filename") == crash_filename:
+            log.error("test hook: exit with code 1 for file %s", crash_filename, extra=extra)
+            _flush_log_handlers()
+            os._exit(1)
+        # Step 6: work.
+        try:
+            await _process(client, gemini, msg, document_id, state)
+        except (documents.DocumentGone, RedisError):
+            raise
         except DocumentError as exc:
             await _fail(client, msg, document_id, attempt, exc.error_code, exc.message)
-        except RedisError:
-            raise
         except Exception as exc:
-            log.exception("attempt %d of %d failed", attempt, MAX_ATTEMPTS, extra=extra)
-            if attempt < MAX_ATTEMPTS:
-                await queue.retry(client, msg.msg_id, document_id, msg.fields.get("parser", ""), attempt)
+            log.exception("attempt %d of %d failed", attempt, max_attempts, extra=extra)
+            if attempt < max_attempts:
+                await queue.retry(client, msg.msg_id, document_id, msg.fields.get("parser", ""))
             elif isinstance(exc, GeminiUnavailable):
                 await _fail(
                     client, msg, document_id, attempt, exc.error_code,
-                    f"Gemini did not answer the page request after {MAX_ATTEMPTS} attempts.",
+                    f"Gemini did not answer the page request after {max_attempts} attempts.",
                 )
             else:
                 await _fail(
                     client, msg, document_id, attempt, "processing_failed",
-                    f"The document could not be processed after {MAX_ATTEMPTS} attempts.",
+                    f"The document could not be processed after {max_attempts} attempts.",
                 )
     except documents.DocumentGone:
+        log.info("document expired during processing", extra=extra)
         await queue.ack(client, msg.msg_id)
     except RedisError:
-        # Step 5, Redis down: no XACK is possible. The message stays pending.
+        # Redis down: no XACK is possible. The message stays pending. Wait, so that the start
+        # recovery does not read it again at once and use all attempts in seconds.
         log.warning("Redis error, message stays pending", exc_info=True, extra=extra)
+        await asyncio.sleep(REDIS_RETRY_SECONDS)
 
 
 async def _read_or_stop(client: Redis, consumer: str, count: int, stop: asyncio.Event) -> list[queue.StreamMessage] | None:
@@ -181,9 +220,13 @@ class Processor:
     in the set is ignored.
     """
 
-    def __init__(self, client: Redis, gemini: GeminiClient) -> None:
+    def __init__(
+        self, client: Redis, gemini: GeminiClient, max_attempts: int, crash_filename: str = ""
+    ) -> None:
         self.client = client
         self.gemini = gemini
+        self.max_attempts = max_attempts
+        self.crash_filename = crash_filename
         self.in_process: set[str] = set()
         self.tasks: set[asyncio.Task[None]] = set()
         self._slots = asyncio.Semaphore(READ_COUNT)
@@ -195,7 +238,7 @@ class Processor:
             log.info("message %s from %s ignored, already in process", msg.msg_id, source, extra=extra)
             return None
         self.in_process.add(msg.msg_id)
-        log.info("message %s from %s, attempt %s", msg.msg_id, source, msg.fields.get("attempt"), extra=extra)
+        log.info("message %s from %s", msg.msg_id, source, extra=extra)
         task = asyncio.create_task(self._run(msg))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
@@ -204,7 +247,9 @@ class Processor:
     async def _run(self, msg: queue.StreamMessage) -> None:
         try:
             async with self._slots:
-                await handle_message(self.client, self.gemini, msg)
+                await handle_message(
+                    self.client, self.gemini, msg, self.max_attempts, self.crash_filename
+                )
         finally:
             self.in_process.discard(msg.msg_id)
 
@@ -278,10 +323,17 @@ async def claim_loop(
             log.exception("claim: unexpected error")
 
 
-async def run(client: Redis, gemini: GeminiClient, consumer: str, stop: asyncio.Event) -> None:
+async def run(
+    client: Redis,
+    gemini: GeminiClient,
+    consumer: str,
+    stop: asyncio.Event,
+    max_attempts: int,
+    crash_filename: str = "",
+) -> None:
     """The consumer loop. It does not exit when Redis is down: it waits and goes on."""
     await _setup_group(client, stop)
-    proc = Processor(client, gemini)
+    proc = Processor(client, gemini, max_attempts, crash_filename)
     claimer = asyncio.create_task(claim_loop(proc, consumer, stop))
     await recover_own_pending(proc, consumer, stop)
     log.info("consumer %s reads %s", consumer, queue.STREAM)

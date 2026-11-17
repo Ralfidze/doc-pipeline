@@ -23,7 +23,14 @@ async def main() -> None:
         loop.add_signal_handler(sig, stop.set)
     log.info("worker started")
     try:
-        await run(client, gemini, socket.gethostname(), stop)
+        await run(
+            client,
+            gemini,
+            socket.gethostname(),
+            stop,
+            max_attempts=settings.max_attempts,
+            crash_filename=settings.worker_test_crash_filename,
+        )
     finally:
         await client.aclose()
     log.info("worker stopped")

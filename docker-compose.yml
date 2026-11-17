@@ -26,6 +26,7 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
+    restart: unless-stopped
     stop_grace_period: 30s
     depends_on:
       redis:

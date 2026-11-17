@@ -204,6 +204,19 @@ async def _write(
         await pipe.execute()
 
 
+async def begin_attempt(client: Redis, document_id: str) -> int:
+    """Count one attempt in the hash. Return the new count. Raise DocumentGone if the hash does not exist."""
+    expires_at = await client.hget(doc_key(document_id), "expires_at")
+    if expires_at is None:
+        raise DocumentGone(document_id)
+    async with client.pipeline(transaction=True) as pipe:
+        pipe.hincrby(doc_key(document_id), "attempts", 1)
+        pipe.hset(doc_key(document_id), "updated_at", datetime.now(UTC).isoformat())
+        pipe.expireat(doc_key(document_id), int(expires_at))
+        results = await pipe.execute()
+    return int(results[0])
+
+
 async def set_status(client: Redis, document_id: str, status: Status) -> None:
     await _write(client, document_id, {"status": status.value})
 
@@ -243,16 +256,18 @@ async def set_failure(
     error_code: str,
     error_message: str,
     extra: Callable[[Pipeline], None] | None = None,
+    attempts: int | None = None,
 ) -> None:
-    """Set `failed` and the error. `extra` adds commands (XACK, dead letter) to the same MULTI."""
-    await _write(
-        client,
-        document_id,
-        {
-            "status": Status.FAILED.value,
-            "error_code": error_code,
-            "error_message": error_message,
-            "summary_status": SummaryStatus.SKIPPED.value,
-        },
-        extra=extra,
-    )
+    """Set `failed` and the error. `extra` adds commands (XACK, dead letter) to the same MULTI.
+
+    If `attempts` has a value, it is written to the `attempts` field in the same MULTI.
+    """
+    fields = {
+        "status": Status.FAILED.value,
+        "error_code": error_code,
+        "error_message": error_message,
+        "summary_status": SummaryStatus.SKIPPED.value,
+    }
+    if attempts is not None:
+        fields["attempts"] = str(attempts)
+    await _write(client, document_id, fields, extra=extra)

@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     gemini_model_id: str = "gemini-3.1-flash-lite"
     openai_api_key: str = ""
     gemini_test_mode: str = ""
+    max_attempts: int = Field(default=3, ge=1)
+    worker_test_crash_filename: str = ""
 
     @field_validator("gemini_model_id")
     @classmethod

@@ -10,11 +10,11 @@ DEAD_STREAM = "documents:dead"
 STREAM_MAXLEN = 10000
 
 
-def add_message(conn: Redis | Pipeline, document_id: str, parser: str, attempt: int = 0) -> None:
+def add_message(conn: Redis | Pipeline, document_id: str, parser: str) -> None:
     """Queue `XADD` for one document. Only ids, never PDF bytes. On a pipeline this does not send."""
     conn.xadd(
         STREAM,
-        {"document_id": document_id, "parser": parser, "attempt": str(attempt)},
+        {"document_id": document_id, "parser": parser},
         maxlen=STREAM_MAXLEN,
         approximate=True,
     )
@@ -117,11 +117,11 @@ async def ack(client: Redis, msg_id: str) -> None:
     await client.xack(STREAM, GROUP, msg_id)
 
 
-async def retry(client: Redis, msg_id: str, document_id: str, parser: str, attempt: int) -> None:
-    """Step 5: `XACK` and `XADD` with the new `attempt` in one MULTI."""
+async def retry(client: Redis, msg_id: str, document_id: str, parser: str) -> None:
+    """Step 5: `XACK` and `XADD` of a new message in one MULTI."""
     async with client.pipeline(transaction=True) as pipe:
         add_ack(pipe, msg_id)
-        add_message(pipe, document_id, parser, attempt)
+        add_message(pipe, document_id, parser)
         await pipe.execute()
 
 

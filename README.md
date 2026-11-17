@@ -28,6 +28,8 @@ Settings in `.env`:
 - `GEMINI_MODEL_ID`: Gemini model. Default `gemini-3.1-flash-lite`.
 - `OPENAI_API_KEY`: only read for the `gpt5mini` refusal message.
 - `GEMINI_TEST_MODE`: `rate_limit` or `bad_page_count`. Use it for failure tests.
+- `MAX_ATTEMPTS`: attempt limit for one document. Default `3`. Use a whole number of 1 or more. A wrong value makes `api` and `worker` stop at start.
+- `WORKER_TEST_CRASH_FILENAME`: tests only. The worker exits when it starts work on a file with this name. Do not set it in a usual run.
 
 Commands:
 
