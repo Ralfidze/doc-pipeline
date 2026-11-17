@@ -1,0 +1,8 @@
+services:
+  worker:
+    environment:
+      GEMINI_TEST_MODE: rate_limit
+      WORKER_TEST_CRASH_FILENAME: crash.pdf
+  redis:
+    ports:
+      - "127.0.0.1::6379"

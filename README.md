@@ -206,12 +206,46 @@ ALL STEPS PASSED
 Stop the stack with: docker compose down
 ```
 
+## Tests
+
+Run the tests:
+
+```
+make test
+```
+
+`make test` does these steps:
+
+1. It builds and starts `redis`, `api` and `worker` with the test settings of `docker-compose.test.yml`.
+2. It waits until `GET /health` returns `200`.
+3. It runs six tests.
+4. It stops the stack and removes its containers. It does this also after a failed test.
+
+Rules:
+
+- You need Docker and `uv`. The file `.env` must exist (`cp .env.example .env`).
+- The tests need no key for Google Gemini.
+- `make test` replaces a running stack and stops it at the end.
+- Do not set `MAX_ATTEMPTS` in `.env` for the run. The crash test expects the default of `3`.
+
+The tests:
+
+- `test_upload_pypdf_done`: a 3-page PDF with `pypdf` ends as `done` with 3 pages, and `attempts` is `1`.
+- `test_non_pdf_415`: a text file gets `415`.
+- `test_encrypted_failed`: an encrypted PDF ends as `failed` with `error_code` `encrypted` after 1 attempt.
+- `test_gpt5mini_400`: `parser=gpt5mini` gets `400`.
+- `test_crash_dead_letter`: a file that crashes the worker ends as `failed` with `error_code` `max_attempts` after 3 attempts, one message is in `documents:dead`, and the worker runs again.
+- `test_restart_recovers`: a worker killed during the work is started again, and the document ends as `done` with `attempts` `2`.
+
 ## Known issues
 
 - The first API request after a Redis restart can return `503`. The next request works. Likely cause: the Redis client of the API keeps a pooled connection that is stale after the restart, and it has no retry (`app/storage/client.py`, `make_client`). One-line fix: retry one time on a stale pooled connection (give the client a retry of 1 for connection errors).
-- The smoke tests (Task 7 of the task list) are not written. The acceptance criteria were checked by hand with `curl` during the build.
 - The first 25 pages only are read with `parser=gemini`. The document then has the warning `gemini_page_limit`.
 - Results are kept for 1 hour.
+
+## Not done
+
+- The upload page (optional Part 4 of the functional spec). There is no frontend in this version.
 
 ## Assumptions
 
@@ -258,4 +292,4 @@ Gaps the process caught:
 - The blind spec verifier found that my 12 criteria had no test for the Gemini parser or the queue endpoint.
 - The evidence rule in implement found a COUNT 1 worker loop and a stale-connection 503 after a Redis restart.
 
-Not fixed by choice: the 503 (see Known issues), smoke tests (skip-tests), formal /awos:verify (demo.sh output above replaces it).
+Not fixed by choice: the 503 (see Known issues), formal /awos:verify (demo.sh output above replaces it).
