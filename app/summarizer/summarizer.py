@@ -1,6 +1,6 @@
 from google.genai import errors
 
-from app.gemini import GeminiClient, GeminiNotConfigured
+from app.gemini import DATA_INSTRUCTION, GeminiClient, GeminiNotConfigured
 from app.models import PageContent
 
 MAX_INPUT_CHARS = 30_000
@@ -25,12 +25,17 @@ def build_input(pages: list[PageContent]) -> str:
     return text
 
 
+def build_prompt(pages: list[PageContent]) -> str:
+    """The task text, the data instruction, then the page text between the document markers."""
+    return f"{PROMPT}{DATA_INSTRUCTION}\n\n<document>\n{build_input(pages)}\n</document>"
+
+
 async def summarize(gemini: GeminiClient, pages: list[PageContent], document_id: str) -> str:
     """Return the summary. Raise `SummaryError` for each failure."""
     if not gemini.is_available:
         raise SummaryError("GEMINI_API_KEY is not set.")
     try:
-        text = await gemini.generate(PROMPT + build_input(pages), document_id=document_id)
+        text = await gemini.generate(build_prompt(pages), document_id=document_id)
     except GeminiNotConfigured as exc:
         raise SummaryError("GEMINI_API_KEY is not set.") from exc
     except errors.APIError as exc:

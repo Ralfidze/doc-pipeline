@@ -7,7 +7,7 @@ from google.genai import errors, types
 from pypdf import PdfWriter
 from pypdf.errors import PyPdfError
 
-from app.gemini import GeminiClient
+from app.gemini import DATA_INSTRUCTION, GeminiClient
 from app.models import PageContent
 from app.parsers.base import DocumentError, GeminiUnavailable, ParseResult
 from app.parsers.pdf import open_pdf
@@ -44,6 +44,15 @@ def _prepare_sync(pdf_bytes: bytes) -> tuple[bytes, int, bool]:
     return out.getvalue(), MAX_PAGES, True
 
 
+def build_contents(pdf_bytes: bytes, count: int) -> list[str | types.Part]:
+    """Three parts: the task, the data instruction and the opening marker; the PDF; the closing marker."""
+    return [
+        f"{PROMPT.format(count=count)}\n\n{DATA_INSTRUCTION}\n\n<document>",
+        types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
+        "</document>",
+    ]
+
+
 def _read_items(text: str, expected: int) -> list[str] | None:
     """Return the page items, or None if the answer is wrong (not JSON, not a list, wrong count)."""
     try:
@@ -69,10 +78,7 @@ class GeminiParser:
         send_bytes, count, was_cut = await asyncio.to_thread(_prepare_sync, pdf_bytes)
         warnings = ["gemini_page_limit"] if was_cut else []
         extra = {"document_id": document_id} if document_id else {}
-        contents = [
-            types.Part.from_bytes(data=send_bytes, mime_type="application/pdf"),
-            PROMPT.format(count=count),
-        ]
+        contents = build_contents(send_bytes, count)
         config = types.GenerateContentConfig(
             response_mime_type="application/json", response_schema=list[str]
         )
