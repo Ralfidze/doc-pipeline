@@ -13,13 +13,13 @@ Requirements: Docker with Compose.
    ```
 
    Then set `GEMINI_API_KEY` in `.env`.
-2. Start the stack (`redis`, `api`, `worker`):
+2. Start the stack (`redis`, `api`, `worker`, `frontend`):
 
    ```
    docker compose up -d --build
    ```
 
-3. The API runs at `http://localhost:8000`.
+3. The API runs at `http://localhost:8000`. The upload page runs at `http://localhost:3000`.
 
 Settings in `.env`:
 
@@ -206,6 +206,22 @@ ALL STEPS PASSED
 Stop the stack with: docker compose down
 ```
 
+## Upload page
+
+Start the stack with `docker compose up -d --build`. Then open `http://localhost:3000`. Port 3000 must be free.
+
+On the page you do these steps:
+
+- Select one or more PDF files.
+- Select the parser, `pypdf` or `gemini`.
+- Click "Upload".
+- The list shows the status of each document. The page gets the list again every 2 seconds.
+- A `done` document shows its pages and its summary.
+
+The page calls the API through the address `/api/` of the same service. The API has no CORS setting.
+
+A plain `docker compose up -d --build` also builds the page image. It needs Node images from a registry. `make test` does not start the page.
+
 ## Tests
 
 Run the tests:
@@ -245,7 +261,7 @@ The tests:
 
 ## Not done
 
-- The upload page (optional Part 4 of the functional spec). There is no frontend in this version.
+Each item of the functional spec is delivered.
 
 ## Assumptions
 
@@ -257,7 +273,7 @@ The tests:
 - A scanned PDF with `parser=pypdf` gets the warning `no_text_layer` and no summary.
 - `parser=gpt5mini` is refused: real GPT-5 Mini OCR is out of scope.
 - Redis is the only store and the only queue. It has no persistence settings.
-- There is no frontend, no auth and no user accounts in this version.
+- There is no auth and there are no user accounts in this version.
 
 
 ## AI workflow
